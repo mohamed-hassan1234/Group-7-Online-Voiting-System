@@ -5,7 +5,7 @@ import Votes from "./dashboards/Votes.jsx";
 import NotFoundPage from "./pages/NotFoundPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
 import { getSessionUser } from "./utils/session.js";
-import FinalResultsPage from './dashboards/FinalResultsPage.jsx'
+
 const ProtectedRoute = ({ children }) => {
   const user = getSessionUser();
   if (!user) {
@@ -73,6 +73,15 @@ function App() {
         />
 
         <Route
+          path="/Sidebar"
+          element={
+            
+              <Sidebar />
+           
+          }
+        />
+
+        <Route
           path="/dashboard/:role"
           element={
             <ProtectedRoute>
@@ -80,6 +89,9 @@ function App() {
             </ProtectedRoute>
           }
         />
+
+        {/* Elections Route */}
+        <Route path="/elections" element={<Elections/>}/>
 
         {/* One dashboard route works for all roles, plus /dashboard auto-redirects. */}
         <Route path="/dashboard" element={<DashboardRootRedirect />} />
