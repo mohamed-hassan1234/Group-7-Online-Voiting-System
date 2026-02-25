@@ -6,6 +6,7 @@ import CompetitorDashboardPage from "./pages/CompetitorDashboardPage.jsx";
 import CompetitorLoginPage from "./pages/CompetitorLoginPage.jsx";
 import HomePage from "./pages/HomePage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
+import Votes from "./dashboards/Votes.jsx";
 import NotFoundPage from "./pages/NotFoundPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
 import VoterDashboardPage from "./pages/VoterDashboardPage.jsx";
@@ -65,7 +66,12 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+<<<<<<< HEAD
         <Route path="/" element={<HomePage />} />
+=======
+        <Route path="/" element={<Navigate to={getHomePath()} replace />} />
+        <Route path="/votes" element={<Votes to={getHomePath()} replace />} />  
+>>>>>>> dafa44b43336b528ed0c00572244870a7f678328
 
         <Route
           path="/admin/register"
@@ -85,6 +91,24 @@ function App() {
           }
         />
 
+           <Route
+          path="/FinalResultsPage"
+          element={
+            
+              <FinalResultsPage />
+           
+          }
+        />
+
+        <Route
+          path="/Sidebar"
+          element={
+            
+              <Sidebar />
+           
+          }
+        />
+
         <Route
           path="/voter/register"
           element={
@@ -93,6 +117,19 @@ function App() {
             </GuestRoute>
           }
         />
+        {/* Candidates */}
+        <Route
+        path="/Candidates"
+        element={
+          <Candidates/>
+        }
+        />
+
+        
+
+
+        {/* Elections Route */}
+        <Route path="/elections" element={<Elections/>}/>
 
         <Route
           path="/voter/login"
