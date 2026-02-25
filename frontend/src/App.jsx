@@ -6,6 +6,7 @@ import RegisterPage from "./pages/RegisterPage.jsx";
 import { getSessionUser } from "./utils/session.js";
 import Elections from "./dashboards/Elections.jsx";
 import Sidebar from "./components/Sidebar.jsx";
+import Candidates from "./dashboards/Candidates.jsx"
 const ProtectedRoute = ({ children }) => {
   const user = getSessionUser();
   if (!user) {
@@ -79,6 +80,16 @@ function App() {
             </ProtectedRoute>
           }
         />
+        {/* Candidates */}
+        <Route
+        path="/Candidates"
+        element={
+          <Candidates/>
+        }
+        />
+
+        
+
 
         {/* Elections Route */}
         <Route path="/elections" element={<Elections/>}/>
