@@ -3,7 +3,7 @@ import { getSessionUser } from "../utils/session.js";
 
 function NotFoundPage() {
   const user = getSessionUser();
-  const backPath = user ? `/dashboard/${user.role}` : "/login";
+  const backPath = user ? (user.role === "admin" ? "/admin/dashboard" : "/voter/dashboard") : "/";
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4">

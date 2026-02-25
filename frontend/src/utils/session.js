@@ -22,3 +22,7 @@ export const getSession = () => {
 };
 
 export const getSessionUser = () => getSession()?.user || null;
+
+export const isAdminSession = () => getSessionUser()?.role === "admin";
+export const isVoterSession = () => getSessionUser()?.role === "user";
+export const isCompetitorSession = () => getSessionUser()?.role === "competitor";

@@ -1,8 +1,14 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import { DEFAULT_ROLE, ROLE_VALUES } from "../constants/roles.js";
+import { ROLES } from "../constants/roles.js";
 
 const SALT_ROUNDS = 10;
+export const VOTER_APPROVAL_STATUSES = Object.freeze({
+  PENDING: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+});
 
 const userSchema = new mongoose.Schema(
   {
@@ -30,9 +36,30 @@ const userSchema = new mongoose.Schema(
       enum: ROLE_VALUES,
       default: DEFAULT_ROLE,
     },
+    approvalStatus: {
+      type: String,
+      enum: Object.values(VOTER_APPROVAL_STATUSES),
+      default: VOTER_APPROVAL_STATUSES.APPROVED,
+      index: true,
+    },
+    approvalComment: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    approvalReviewedAt: {
+      type: Date,
+      default: null,
+    },
+    approvalReviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   { timestamps: true }
 );
+
 
 // Hash the password only when it is new/changed.
 // Mongoose v9 uses async hooks without `next` callback.
@@ -49,11 +76,18 @@ userSchema.methods.comparePassword = async function comparePassword(plainPasswor
 };
 
 userSchema.methods.toPublicJSON = function toPublicJSON() {
+  const isVoter = this.role === ROLES.USER;
   return {
     id: this._id,
     name: this.name,
     email: this.email,
     role: this.role,
+    approvalStatus: isVoter
+      ? this.approvalStatus || VOTER_APPROVAL_STATUSES.PENDING
+      : VOTER_APPROVAL_STATUSES.APPROVED,
+    approvalComment: isVoter ? this.approvalComment : "",
+    approvalReviewedAt: isVoter ? this.approvalReviewedAt : null,
+    approvalReviewedBy: isVoter ? this.approvalReviewedBy : null,
   };
 };
 
