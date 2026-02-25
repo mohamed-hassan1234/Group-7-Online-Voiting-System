@@ -1,11 +1,11 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
+import Votes from "./dashboards/Votes.jsx";
 import NotFoundPage from "./pages/NotFoundPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
 import { getSessionUser } from "./utils/session.js";
-import Elections from "./dashboards/Elections.jsx";
-import Sidebar from "./components/Sidebar.jsx";
+
 const ProtectedRoute = ({ children }) => {
   const user = getSessionUser();
   if (!user) {
@@ -43,6 +43,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Navigate to={getHomePath()} replace />} />
+        <Route path="/votes" element={<Votes to={getHomePath()} replace />} />  
 
         <Route
           path="/login"
@@ -59,6 +60,15 @@ function App() {
             <GuestRoute>
               <RegisterPage />
             </GuestRoute>
+          }
+        />
+
+           <Route
+          path="/FinalResultsPage"
+          element={
+            
+              <FinalResultsPage />
+           
           }
         />
 
