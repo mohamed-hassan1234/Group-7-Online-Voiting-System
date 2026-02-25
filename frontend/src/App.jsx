@@ -89,6 +89,16 @@ function App() {
             </ProtectedRoute>
           }
         />
+        {/* Candidates */}
+        <Route
+        path="/Candidates"
+        element={
+          <Candidates/>
+        }
+        />
+
+        
+
 
         {/* Elections Route */}
         <Route path="/elections" element={<Elections/>}/>
