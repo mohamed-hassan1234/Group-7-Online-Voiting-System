@@ -2,8 +2,6 @@
 export const ROLES = Object.freeze({
   ADMIN: "admin",
   USER: "user",
-  CASHIER: "cashier",
-  MANAGER:"manager"
 });
 
 export const ROLE_VALUES = Object.freeze(Object.values(ROLES));
