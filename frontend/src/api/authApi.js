@@ -1,5 +1,73 @@
 import { API_BASE_URL } from "../config/env.js";
 
+const API_HOST = String(API_BASE_URL || "").replace(/\/api\/?$/, "");
+
+const normalizeSingleImageUrl = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  const toApiUploadsPath = (pathname) => {
+    const apiMatch = pathname.match(/\/api\/uploads\/(.+)$/i);
+    if (apiMatch?.[1]) {
+      return `/api/uploads/${apiMatch[1]}`;
+    }
+    const uploadsMatch = pathname.match(/\/uploads\/(.+)$/i);
+    if (uploadsMatch?.[1]) {
+      return `/api/uploads/${uploadsMatch[1]}`;
+    }
+    return "";
+  };
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw);
+      const fixedPath = toApiUploadsPath(parsed.pathname || "");
+      if (fixedPath) {
+        return `${API_HOST}${fixedPath}`;
+      }
+      if (parsed.protocol === "http:" && parsed.host === new URL(API_HOST).host) {
+        parsed.protocol = "https:";
+        return parsed.toString();
+      }
+      return raw;
+    } catch {
+      return raw;
+    }
+  }
+
+  if (raw.startsWith("/")) {
+    const fixedPath = toApiUploadsPath(raw);
+    if (fixedPath) {
+      return `${API_HOST}${fixedPath}`;
+    }
+    return `${API_HOST}${raw}`;
+  }
+
+  return raw;
+};
+
+const normalizeImageUrlsDeep = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeImageUrlsDeep(item));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const result = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "imageUrl" && typeof item === "string") {
+      result[key] = normalizeSingleImageUrl(item);
+    } else {
+      result[key] = normalizeImageUrlsDeep(item);
+    }
+  }
+  return result;
+};
+
 export const requestJson = async (path, options = {}) => {
   const isFormDataBody = options.body instanceof FormData;
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -22,7 +90,7 @@ export const requestJson = async (path, options = {}) => {
     throw new Error(responseData?.message || "Request failed");
   }
 
-  return responseData;
+  return normalizeImageUrlsDeep(responseData);
 };
 
 export const fetchAvailableRoles = () => requestJson("/auth/roles");
