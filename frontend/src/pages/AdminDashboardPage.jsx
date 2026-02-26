@@ -668,7 +668,7 @@ function AdminDashboardPage() {
     }
 
     const confirmed = window.confirm(
-      `Delete candidate "${competitor.name}"? This removes the candidate if no vote history exists.`
+      `Delete candidate "${competitor.name}"? Candidate will be removed from no-vote elections automatically, but cannot be deleted if vote history exists.`
     );
     if (!confirmed) {
       return;

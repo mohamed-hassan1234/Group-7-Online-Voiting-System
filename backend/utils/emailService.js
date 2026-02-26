@@ -7,6 +7,8 @@ const SMTP_SECURE =
 const SMTP_USER = process.env.SMTP_USER || "";
 const SMTP_PASS = process.env.SMTP_PASS || "";
 const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER || "";
+const EMAIL_TIMEZONE = process.env.EMAIL_TIMEZONE || process.env.TZ || "UTC";
+const EMAIL_LOCALE = process.env.EMAIL_LOCALE || "en-GB";
 const ADMIN_NOTIFICATION_EMAIL = (process.env.ADMIN_NOTIFICATION_EMAIL || "hn4717064@gmail.com")
   .trim()
   .toLowerCase();
@@ -100,14 +102,27 @@ const formatDateForEmail = (value) => {
     return "Not specified";
   }
 
-  return date.toLocaleString("en-US", {
+  let resolvedTimeZone = "UTC";
+  try {
+    // Validate configured timezone. Fallback avoids runtime RangeError.
+    Intl.DateTimeFormat("en-US", { timeZone: EMAIL_TIMEZONE }).format(date);
+    resolvedTimeZone = EMAIL_TIMEZONE;
+  } catch {
+    resolvedTimeZone = "UTC";
+  }
+
+  const formatted = date.toLocaleString(EMAIL_LOCALE, {
     year: "numeric",
     month: "short",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: true,
+    hour12: false,
+    timeZone: resolvedTimeZone,
+    timeZoneName: "short",
   });
+
+  return formatted;
 };
 
 export const sendVoterPendingApprovalEmail = async ({ name, email }) => {

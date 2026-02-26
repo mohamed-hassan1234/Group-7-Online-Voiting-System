@@ -564,17 +564,51 @@ export const deleteCompetitor = async (req, res) => {
       return res.status(404).json({ message: "competitor not found" });
     }
 
-    const assignedPollCount = await Poll.countDocuments({
+    const assignedPolls = await Poll.find({
       isArchived: false,
       "competitors.competitor": competitor._id,
-    });
-    if (assignedPollCount > 0) {
-      return res.status(409).json({
-        message: "competitor is assigned to elections. remove candidate from elections first",
-      });
+    }).select("_id title totalVotes competitors");
+
+    if (assignedPolls.length > 0) {
+      const pollsWithVotes = assignedPolls.filter((poll) => Number(poll.totalVotes || 0) > 0);
+      if (pollsWithVotes.length > 0) {
+        return res.status(409).json({
+          message: "competitor has vote history and cannot be deleted from elections with votes",
+          blockingElections: pollsWithVotes.map((poll) => ({
+            id: poll._id,
+            title: poll.title || "Untitled election",
+            totalVotes: Number(poll.totalVotes || 0),
+          })),
+        });
+      }
+
+      const pollsBelowMinimum = assignedPolls.filter(
+        (poll) => Array.isArray(poll.competitors) && poll.competitors.length <= 2
+      );
+      if (pollsBelowMinimum.length > 0) {
+        return res.status(409).json({
+          message:
+            "cannot delete competitor because some elections would have less than 2 competitors. add/replace competitors first",
+          blockingElections: pollsBelowMinimum.map((poll) => ({
+            id: poll._id,
+            title: poll.title || "Untitled election",
+            competitorsCount: Array.isArray(poll.competitors) ? poll.competitors.length : 0,
+          })),
+        });
+      }
+
+      for (const poll of assignedPolls) {
+        poll.competitors = (poll.competitors || []).filter(
+          (row) => String(row?.competitor) !== String(competitor._id)
+        );
+        await poll.save();
+        publishPollResults(poll._id);
+      }
     }
 
-    const hasVoteHistory = await Vote.exists({ competitorId: competitor._id });
+    const hasVoteHistory = await Vote.exists({
+      $or: [{ competitorId: competitor._id }, { optionId: competitor._id }],
+    });
     if (hasVoteHistory) {
       return res.status(409).json({
         message: "competitor has vote history and cannot be deleted",
