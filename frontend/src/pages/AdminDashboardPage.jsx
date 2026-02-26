@@ -1064,7 +1064,33 @@ function AdminDashboardPage() {
 
         <div className="min-w-0 space-y-6 px-3 pb-6 sm:px-6 lg:ml-[268px] lg:pl-6">
           {activeMenu === "dashboard" ? (
-           <></>
+            <header className="rounded-3xl border border-slate-200 bg-white shadow-panel">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                    Administration
+                  </p>
+                  {/* <h1 className="text-4xl font-bold tracking-tight text-slate-800">Control Panel</h1> */}
+                </div>
+                {/* <div className="flex items-center gap-3">
+                  <button
+                    className="rounded-2xl border border-slate-200 bg-white p-3 text-slate-700 hover:bg-slate-100"
+                    type="button"
+                    aria-label="Theme"
+                  >
+                    <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a7 7 0 1 0 9.8 9.8z" fill="currentColor" />
+                    </svg>
+                  </button>
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full border border-slate-300 bg-slate-900 text-xl font-bold text-white">
+                    {(sessionUser?.name || "A").slice(0, 1).toUpperCase()}
+                  </div>
+                </div> */}
+              </div>
+              <div className="px-6 py-6">
+                <h2 className="text-5xl font-bold text-black">Admin Dashboard</h2>
+              </div>
+            </header>
           ) : (
             <header className="sticky top-0 z-20 border border-slate-200 bg-white px-5 py-4 shadow-panel">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-800">Admin</p>
