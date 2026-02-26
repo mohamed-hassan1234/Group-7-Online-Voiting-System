@@ -46,9 +46,9 @@ function AdminLoginPage() {
     <AuthLayout
       title="Admin Login"
       subtitle="Login to manage competitors, elections, and results."
-      altText="No admin account?"
-      altLink="/admin/register"
-      altLabel="Admin Register"
+      // altText="No admin account?"
+      // altLink="/admin/register"
+      // altLabel="Admin Register"
     >
       <form className="space-y-4" onSubmit={handleSubmit}>
         <label className="block text-sm">
