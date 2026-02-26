@@ -5,7 +5,9 @@ import {
   castVote,
   createCompetitor,
   createPoll,
+  deleteCompetitor,
   getDashboardOverview,
+  listAdminVotesAudit,
   getPollById,
   getPollResults,
   listPollCompetitors,
@@ -14,6 +16,7 @@ import {
   removePollCompetitor,
   replacePollCompetitors,
   streamPollResults,
+  updateCompetitor,
   updatePoll,
   updatePollStatus,
 } from "../controllers/pollController.js";
@@ -25,6 +28,8 @@ const router = express.Router();
 router.post("/admin", uploadPollImage, createPoll);
 router.post("/admin/competitors", uploadCompetitorImage, createCompetitor);
 router.get("/admin/competitors", listCompetitors);
+router.patch("/admin/competitors/:competitorId", uploadCompetitorImage, updateCompetitor);
+router.delete("/admin/competitors/:competitorId", deleteCompetitor);
 router.patch("/admin/:pollId", uploadPollImage, updatePoll);
 router.patch("/admin/:pollId/status", updatePollStatus);
 router.post("/admin/:pollId/competitors", addPollCompetitors);
@@ -32,6 +37,7 @@ router.put("/admin/:pollId/competitors", replacePollCompetitors);
 router.delete("/admin/:pollId/competitors/:competitorId", removePollCompetitor);
 router.delete("/admin/:pollId", archivePoll);
 router.get("/dashboard/overview", getDashboardOverview);
+router.get("/admin/votes", listAdminVotesAudit);
 
 // Poll browsing and voting
 router.get("/", listPolls);

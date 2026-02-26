@@ -1,6 +1,6 @@
+import "./config/loadEnv.js";
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import session from "express-session";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -10,18 +10,39 @@ import pollRoutes from "./routes/pollRoutes.js";
 import voterRoutes from "./routes/voterRoutes.js";
 import competitorRoutes from "./routes/competitorRoutes.js";
 import { attachSessionUser } from "./middleware/sessionAuth.js";
-
-dotenv.config();
+import { runPollLifecycleTick } from "./controllers/pollController.js";
 
 const app = express();
 const port = process.env.PORT || 5010;
-const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
+const configuredOrigins = String(process.env.CLIENT_URL || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedOrigins = [...new Set([
+  ...configuredOrigins,
+  "http://localhost:5173",
+  "https://nidwa.com",
+  "https://www.nidwa.com",
+])];
+const lifecycleIntervalMs = Number(process.env.POLL_LIFECYCLE_INTERVAL_MS || 30000);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 app.use(
   cors({
-    origin: clientUrl,
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
   })
 );
@@ -61,6 +82,16 @@ const startServer = async () => {
   app.listen(port, () => {
     console.log(`server is running on port ${port}`);
   });
+
+  runPollLifecycleTick().catch((error) => {
+    console.error("[poll-lifecycle] initial tick failed:", error.message);
+  });
+
+  setInterval(() => {
+    runPollLifecycleTick().catch((error) => {
+      console.error("[poll-lifecycle] tick failed:", error.message);
+    });
+  }, lifecycleIntervalMs);
 };
 
 startServer();

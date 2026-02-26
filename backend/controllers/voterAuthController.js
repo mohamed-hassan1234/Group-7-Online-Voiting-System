@@ -61,6 +61,7 @@ export const registerVoter = async (req, res) => {
       message: "voter registered successfully. wait for admin approval before login",
       voter: formatUser(voter),
       emailNotificationSent: pendingEmailResult.sent,
+      emailNotificationReason: pendingEmailResult.reason || "",
     });
   } catch (error) {
     return res.status(500).json({
@@ -163,6 +164,116 @@ export const getCurrentVoter = async (req, res) => {
   });
 };
 
+export const updateCurrentVoter = async (req, res) => {
+  try {
+    const voter = req.authUser;
+    const parsedName = normalizeText(req.body?.name);
+    const parsedEmail = normalizeEmail(req.body?.email);
+
+    if (!parsedName || !parsedEmail) {
+      return res.status(400).json({
+        message: "name and email are required",
+      });
+    }
+
+    const existing = await User.findOne({
+      email: parsedEmail,
+      _id: { $ne: voter._id },
+    }).select("_id");
+
+    if (existing) {
+      return res.status(409).json({
+        message: "email already exists",
+      });
+    }
+
+    voter.name = parsedName;
+    voter.email = parsedEmail;
+    await voter.save();
+
+    return res.status(200).json({
+      message: "voter profile updated successfully",
+      voter: formatUser(voter),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "failed to update voter profile",
+      error: error.message,
+    });
+  }
+};
+
+export const changeCurrentVoterPassword = async (req, res) => {
+  try {
+    const voter = await User.findById(req.authUser._id).select("+password");
+    if (!voter || voter.role !== ROLES.USER) {
+      return res.status(404).json({ message: "voter not found" });
+    }
+
+    const currentPassword = req.body?.currentPassword;
+    const newPassword = req.body?.newPassword;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        message: "currentPassword and newPassword are required",
+      });
+    }
+
+    if (String(newPassword).length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({
+        message: `new password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      });
+    }
+
+    const isMatch = await voter.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(401).json({ message: "current password is invalid" });
+    }
+
+    voter.password = newPassword;
+    await voter.save();
+
+    return res.status(200).json({
+      message: "password changed successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "failed to change password",
+      error: error.message,
+    });
+  }
+};
+
+export const deleteCurrentVoter = async (req, res) => {
+  try {
+    const voter = await User.findById(req.authUser._id);
+    if (!voter || voter.role !== ROLES.USER) {
+      return res.status(404).json({ message: "voter not found" });
+    }
+
+    await User.deleteOne({ _id: voter._id });
+
+    if (!req.session) {
+      return res.status(200).json({ message: "voter account deleted successfully" });
+    }
+
+    req.session.destroy((error) => {
+      if (error) {
+        return res.status(200).json({
+          message: "voter account deleted successfully, but session clear failed",
+        });
+      }
+
+      return res.status(200).json({ message: "voter account deleted successfully" });
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "failed to delete voter account",
+      error: error.message,
+    });
+  }
+};
+
 export const listVoterRegistrations = async (req, res) => {
   try {
     const statusRaw = normalizeText(req.query?.status).toLowerCase();
@@ -214,12 +325,22 @@ export const listVoterRegistrations = async (req, res) => {
 export const updateVoterApproval = async (req, res) => {
   try {
     const { voterId } = req.params;
-    const status = normalizeText(req.body?.status).toLowerCase();
+    const statusRaw = normalizeText(req.body?.status).toLowerCase();
+    const statusAliases = {
+      approved: "approved",
+      approve: "approved",
+      rejected: "rejected",
+      reject: "rejected",
+      cancel: "rejected",
+      canceled: "rejected",
+      cancelled: "rejected",
+    };
+    const status = statusAliases[statusRaw] || statusRaw;
     const comment = normalizeText(req.body?.comment);
 
     if (!["approved", "rejected"].includes(status)) {
       return res.status(400).json({
-        message: "status must be approved or rejected",
+        message: "status must be approved/rejected (aliases: approve, reject, cancel)",
       });
     }
 
@@ -253,6 +374,7 @@ export const updateVoterApproval = async (req, res) => {
           : "voter request rejected successfully",
       voter: voter.toPublicJSON(),
       emailNotificationSent: decisionEmailResult.sent,
+      emailNotificationReason: decisionEmailResult.reason || "",
     });
   } catch (error) {
     return res.status(500).json({

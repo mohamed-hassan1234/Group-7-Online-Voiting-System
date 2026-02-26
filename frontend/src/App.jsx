@@ -1,10 +1,10 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import Elections from "./dashboards/Elections.jsx";
 import AdminDashboardPage from "./pages/AdminDashboardPage.jsx";
 import AdminLoginPage from "./pages/AdminLoginPage.jsx";
 import AdminRegisterPage from "./pages/AdminRegisterPage.jsx";
 import CompetitorDashboardPage from "./pages/CompetitorDashboardPage.jsx";
 import CompetitorLoginPage from "./pages/CompetitorLoginPage.jsx";
-import HomePage from "./pages/HomePage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import Votes from "./dashboards/Votes.jsx";
 import NotFoundPage from "./pages/NotFoundPage.jsx";
@@ -16,7 +16,7 @@ import { getSessionUser } from "./utils/session.js";
 
 const redirectByRole = (user) => {
   if (!user) {
-    return "/";
+    return "/voter/login";
   }
 
   if (user.role === "admin") {
@@ -66,12 +66,8 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-<<<<<<< HEAD
-        <Route path="/" element={<HomePage />} />
-=======
-        <Route path="/" element={<Navigate to={getHomePath()} replace />} />
-        <Route path="/votes" element={<Votes to={getHomePath()} replace />} />  
->>>>>>> dafa44b43336b528ed0c00572244870a7f678328
+        <Route path="/" element={<Navigate to="/voter/login" replace />} />
+        <Route path="/votes" element={<Votes />} />
 
         <Route
           path="/admin/register"
@@ -91,24 +87,6 @@ function App() {
           }
         />
 
-           <Route
-          path="/FinalResultsPage"
-          element={
-            
-              <FinalResultsPage />
-           
-          }
-        />
-
-        <Route
-          path="/Sidebar"
-          element={
-            
-              <Sidebar />
-           
-          }
-        />
-
         <Route
           path="/voter/register"
           element={
@@ -118,18 +96,8 @@ function App() {
           }
         />
         {/* Candidates */}
-        <Route
-        path="/Candidates"
-        element={
-          <Candidates/>
-        }
-        />
-
-        
-
-
         {/* Elections Route */}
-        <Route path="/elections" element={<Elections/>}/>
+        <Route path="/elections" element={<Elections />} />
 
         <Route
           path="/voter/login"

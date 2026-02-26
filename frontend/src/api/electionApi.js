@@ -26,6 +26,28 @@ export const createCompetitor = (payload) => {
 
 export const fetchCompetitors = () => requestJson("/polls/admin/competitors");
 
+export const updateCompetitor = (competitorId, payload) => {
+  const formData = new FormData();
+  appendIfValue(formData, "name", payload?.name);
+  appendIfValue(formData, "email", payload?.email);
+  appendIfValue(formData, "phone", payload?.phone);
+  appendIfValue(formData, "sex", payload?.sex);
+  appendIfValue(formData, "password", payload?.password);
+  if (payload?.image) {
+    formData.append("image", payload.image);
+  }
+
+  return requestJson(`/polls/admin/competitors/${competitorId}`, {
+    method: "PATCH",
+    body: formData,
+  });
+};
+
+export const deleteCompetitor = (competitorId) =>
+  requestJson(`/polls/admin/competitors/${competitorId}`, {
+    method: "DELETE",
+  });
+
 export const createElection = (payload) => {
   const formData = new FormData();
   appendIfValue(formData, "title", payload?.title);
@@ -53,6 +75,18 @@ export const updateElectionStatus = (pollId, status) =>
   });
 
 export const fetchElectionResults = (pollId) => requestJson(`/polls/${pollId}/results`);
+
+export const fetchAdminVoteAudit = (params = {}) => {
+  const query = new URLSearchParams();
+  if (params.pollId && params.pollId !== "all") {
+    query.set("pollId", params.pollId);
+  }
+  if (params.search) {
+    query.set("search", params.search);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return requestJson(`/polls/admin/votes${suffix}`);
+};
 
 export const fetchVoterElections = () => requestJson("/voter/elections");
 

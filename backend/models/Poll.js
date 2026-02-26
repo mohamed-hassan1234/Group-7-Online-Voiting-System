@@ -79,6 +79,21 @@ const pollSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    startNotificationSentAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    finalResultNotificationSentAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    cancelNotificationSentAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
     // Keep data safe: "delete" operations archive polls instead of removing them.
     isArchived: {
       type: Boolean,

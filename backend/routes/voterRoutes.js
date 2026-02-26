@@ -1,11 +1,14 @@
 import express from "express";
 import { ROLES } from "../constants/roles.js";
 import {
+  changeCurrentVoterPassword,
+  deleteCurrentVoter,
   getCurrentVoter,
   loginVoter,
   listVoterRegistrations,
   logoutVoter,
   registerVoter,
+  updateCurrentVoter,
   updateVoterApproval,
 } from "../controllers/voterAuthController.js";
 import {
@@ -24,6 +27,9 @@ router.post("/register", registerVoter);
 router.post("/login", loginVoter);
 router.post("/logout", requireAuth, logoutVoter);
 router.get("/me", requireAuth, requireRole(ROLES.USER), getCurrentVoter);
+router.patch("/me", requireAuth, requireRole(ROLES.USER), updateCurrentVoter);
+router.post("/change-password", requireAuth, requireRole(ROLES.USER), changeCurrentVoterPassword);
+router.delete("/me", requireAuth, requireRole(ROLES.USER), deleteCurrentVoter);
 router.get("/admin/registrations", requireAuth, requireRole(ROLES.ADMIN), listVoterRegistrations);
 router.patch("/admin/registrations/:voterId", requireAuth, requireRole(ROLES.ADMIN), updateVoterApproval);
 

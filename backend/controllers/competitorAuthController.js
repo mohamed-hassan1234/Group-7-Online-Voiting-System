@@ -1,8 +1,9 @@
 import Poll, { POLL_STATUSES } from "../models/Poll.js";
-import Competitor from "../models/Competitor.js";
+import Competitor, { COMPETITOR_SEX_VALUES } from "../models/Competitor.js";
 
 const normalizeText = (value) => (typeof value === "string" ? value.trim() : "");
 const normalizeEmail = (value) => normalizeText(value).toLowerCase();
+const MIN_PASSWORD_LENGTH = 6;
 
 const formatCompetitor = (competitor) => competitor.toPublicJSON();
 
@@ -14,6 +15,13 @@ const startCompetitorSession = (req, competitor) => {
   req.session.competitorId = String(competitor._id);
   req.session.userId = undefined;
   req.session.userRole = undefined;
+};
+
+const getUploadedImageUrl = (req) => {
+  if (!req?.file?.filename) {
+    return "";
+  }
+  return `${req.protocol}://${req.get("host")}/uploads/competitors/${req.file.filename}`;
 };
 
 const getPollPhase = (poll, nowTs = Date.now()) => {
@@ -168,6 +176,134 @@ export const getCurrentCompetitor = async (req, res) => {
   return res.status(200).json({
     competitor: formatCompetitor(req.authCompetitor),
   });
+};
+
+export const updateCurrentCompetitor = async (req, res) => {
+  try {
+    const competitor = req.authCompetitor;
+    const parsedName = normalizeText(req.body?.name);
+    const parsedEmail = normalizeEmail(req.body?.email);
+    const parsedPhone = normalizeText(req.body?.phone);
+    const parsedSex = normalizeText(req.body?.sex).toLowerCase();
+
+    if (!parsedName || !parsedEmail || !parsedPhone || !parsedSex) {
+      return res.status(400).json({
+        message: "name, email, phone and sex are required",
+      });
+    }
+
+    if (!COMPETITOR_SEX_VALUES.includes(parsedSex)) {
+      return res.status(400).json({
+        message: "invalid sex value",
+        allowedSexValues: COMPETITOR_SEX_VALUES,
+      });
+    }
+
+    const existing = await Competitor.findOne({
+      email: parsedEmail,
+      _id: { $ne: competitor._id },
+    }).select("_id");
+
+    if (existing) {
+      return res.status(409).json({
+        message: "email already exists",
+      });
+    }
+
+    competitor.name = parsedName;
+    competitor.email = parsedEmail;
+    competitor.phone = parsedPhone;
+    competitor.sex = parsedSex;
+
+    const imageUrl = getUploadedImageUrl(req);
+    if (imageUrl) {
+      competitor.imageUrl = imageUrl;
+    }
+
+    await competitor.save();
+    startCompetitorSession(req, competitor);
+
+    return res.status(200).json({
+      message: "competitor profile updated successfully",
+      competitor: formatCompetitor(competitor),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "failed to update competitor profile",
+      error: error.message,
+    });
+  }
+};
+
+export const changeCompetitorPassword = async (req, res) => {
+  try {
+    const competitor = await Competitor.findById(req.authCompetitor._id).select("+password");
+    if (!competitor) {
+      return res.status(404).json({ message: "competitor not found" });
+    }
+
+    const currentPassword = req.body?.currentPassword;
+    const newPassword = req.body?.newPassword;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        message: "currentPassword and newPassword are required",
+      });
+    }
+
+    if (String(newPassword).length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({
+        message: `new password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      });
+    }
+
+    const isMatch = await competitor.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(401).json({ message: "current password is invalid" });
+    }
+
+    competitor.password = newPassword;
+    await competitor.save();
+
+    return res.status(200).json({
+      message: "password changed successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "failed to change password",
+      error: error.message,
+    });
+  }
+};
+
+export const deleteCurrentCompetitor = async (req, res) => {
+  try {
+    const competitor = await Competitor.findById(req.authCompetitor._id);
+    if (!competitor) {
+      return res.status(404).json({ message: "competitor not found" });
+    }
+
+    await Competitor.deleteOne({ _id: competitor._id });
+
+    if (!req.session) {
+      return res.status(200).json({ message: "competitor account deleted successfully" });
+    }
+
+    req.session.destroy((error) => {
+      if (error) {
+        return res.status(200).json({
+          message: "competitor account deleted successfully, but session clear failed",
+        });
+      }
+
+      return res.status(200).json({ message: "competitor account deleted successfully" });
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "failed to delete competitor account",
+      error: error.message,
+    });
+  }
 };
 
 export const getCompetitorDashboard = async (req, res) => {

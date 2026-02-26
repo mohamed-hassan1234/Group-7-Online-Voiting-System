@@ -39,6 +39,30 @@ export const loginUser = (payload) =>
     body: JSON.stringify(payload),
   });
 
+export const logoutAdmin = () =>
+  requestJson("/auth/logout", {
+    method: "POST",
+  });
+
+export const fetchCurrentUser = () => requestJson("/auth/me");
+
+export const updateCurrentUserProfile = (payload) =>
+  requestJson("/auth/me", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const changeCurrentUserPassword = (payload) =>
+  requestJson("/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const deleteCurrentUserAccount = () =>
+  requestJson("/auth/me", {
+    method: "DELETE",
+  });
+
 export const registerVoter = (payload) =>
   requestJson("/voter/register", {
     method: "POST",
@@ -54,6 +78,25 @@ export const loginVoter = (payload) =>
 export const logoutVoter = () =>
   requestJson("/voter/logout", {
     method: "POST",
+  });
+
+export const fetchCurrentVoter = () => requestJson("/voter/me");
+
+export const updateCurrentVoterProfile = (payload) =>
+  requestJson("/voter/me", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const changeCurrentVoterPassword = (payload) =>
+  requestJson("/voter/change-password", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const deleteCurrentVoterAccount = () =>
+  requestJson("/voter/me", {
+    method: "DELETE",
   });
 
 export const loginCompetitor = (payload) =>

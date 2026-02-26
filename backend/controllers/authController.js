@@ -19,6 +19,10 @@ const startSession = (req, user) => {
   req.session.userRole = user.role;
 };
 
+const normalizeText = (value) => (typeof value === "string" ? value.trim() : "");
+const normalizeEmail = (value) => normalizeText(value).toLowerCase();
+const MIN_PASSWORD_LENGTH = 6;
+
 export const getAvailableRoles = (req, res) => {
   return res.status(200).json({
     roles: ROLE_VALUES,
@@ -71,12 +75,14 @@ export const registerUser = async (req, res) => {
     });
 
     let emailNotificationSent = false;
+    let emailNotificationReason = "";
     if (parsedRole === ROLES.USER) {
       const pendingEmailResult = await sendVoterPendingApprovalEmail({
         name: user.name,
         email: user.email,
       });
       emailNotificationSent = pendingEmailResult.sent;
+      emailNotificationReason = pendingEmailResult.reason || "";
     }
 
     if (parsedRole !== ROLES.USER) {
@@ -90,6 +96,7 @@ export const registerUser = async (req, res) => {
           : "registered successfully",
       user: formatUser(user),
       emailNotificationSent,
+      emailNotificationReason,
     });
   } catch (error) {
     return res.status(500).json({
@@ -149,6 +156,147 @@ export const loginUser = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       message: "login failed",
+      error: error.message,
+    });
+  }
+};
+
+export const logoutUser = async (req, res) => {
+  try {
+    if (!req.session) {
+      return res.status(200).json({ message: "logout successful" });
+    }
+
+    req.session.destroy((error) => {
+      if (error) {
+        return res.status(500).json({
+          message: "logout failed",
+          error: error.message,
+        });
+      }
+
+      return res.status(200).json({ message: "logout successful" });
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "logout failed",
+      error: error.message,
+    });
+  }
+};
+
+export const getCurrentUser = async (req, res) => {
+  return res.status(200).json({
+    user: formatUser(req.authUser),
+  });
+};
+
+export const updateCurrentUserProfile = async (req, res) => {
+  try {
+    const user = req.authUser;
+    const nextName = normalizeText(req.body?.name);
+    const nextEmail = normalizeEmail(req.body?.email);
+
+    if (!nextName || !nextEmail) {
+      return res.status(400).json({
+        message: "name and email are required",
+      });
+    }
+
+    const existing = await User.findOne({
+      email: nextEmail,
+      _id: { $ne: user._id },
+    }).select("_id");
+
+    if (existing) {
+      return res.status(409).json({
+        message: "email already exists",
+      });
+    }
+
+    user.name = nextName;
+    user.email = nextEmail;
+    await user.save();
+
+    startSession(req, user);
+
+    return res.status(200).json({
+      message: "profile updated successfully",
+      user: formatUser(user),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "failed to update profile",
+      error: error.message,
+    });
+  }
+};
+
+export const changeCurrentUserPassword = async (req, res) => {
+  try {
+    const user = await User.findById(req.authUser._id).select("+password");
+    if (!user) {
+      return res.status(404).json({ message: "user not found" });
+    }
+
+    const currentPassword = req.body?.currentPassword;
+    const newPassword = req.body?.newPassword;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        message: "currentPassword and newPassword are required",
+      });
+    }
+
+    if (String(newPassword).length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({
+        message: `new password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      });
+    }
+
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(401).json({ message: "current password is invalid" });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    return res.status(200).json({
+      message: "password changed successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "failed to change password",
+      error: error.message,
+    });
+  }
+};
+
+export const deleteCurrentUserAccount = async (req, res) => {
+  try {
+    const user = await User.findById(req.authUser._id);
+    if (!user) {
+      return res.status(404).json({ message: "user not found" });
+    }
+
+    await User.deleteOne({ _id: user._id });
+
+    if (!req.session) {
+      return res.status(200).json({ message: "account deleted successfully" });
+    }
+
+    req.session.destroy((error) => {
+      if (error) {
+        return res.status(200).json({
+          message: "account deleted successfully, but session clear failed",
+        });
+      }
+      return res.status(200).json({ message: "account deleted successfully" });
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "failed to delete account",
       error: error.message,
     });
   }

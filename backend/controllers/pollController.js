@@ -6,6 +6,11 @@ import User from "../models/User.js";
 import Competitor, { COMPETITOR_SEX_VALUES } from "../models/Competitor.js";
 import { ROLES } from "../constants/roles.js";
 import { publishPollResults, subscribeToPollResults } from "../utils/pollRealtime.js";
+import {
+  sendCompetitorElectionFinalResultEmail,
+  sendCompetitorElectionStartedEmail,
+  sendCompetitorElectionCanceledEmail,
+} from "../utils/emailService.js";
 
 const VALID_POLL_STATUSES = Object.values(POLL_STATUSES);
 const POPULATE_COMPETITORS = { path: "competitors.competitor", select: "name email phone sex imageUrl" };
@@ -191,6 +196,226 @@ const getUserVoteCompetitorId = async (pollId, userId) => {
 
 const mapCompetitorsToPoll = (ids) => ids.map((id) => ({ competitor: id, votesCount: 0 }));
 
+const summarizeNotificationResults = (results) => {
+  const attempted = Array.isArray(results) ? results.length : 0;
+  let sent = 0;
+  const failedReasons = [];
+
+  for (const result of results || []) {
+    if (result.status === "fulfilled" && result.value?.sent) {
+      sent += 1;
+      continue;
+    }
+
+    const reason =
+      result.status === "fulfilled"
+        ? result.value?.reason || "unknown_failure"
+        : result.reason?.message || "unknown_failure";
+    failedReasons.push(reason);
+  }
+
+  return {
+    attempted,
+    sent,
+    failed: Math.max(0, attempted - sent),
+    failedReasons: failedReasons.slice(0, 5),
+  };
+};
+
+const getPopulatedPoll = async (pollId) => {
+  if (!pollId) {
+    return null;
+  }
+  return Poll.findById(pollId).populate(POPULATE_COMPETITORS);
+};
+
+const markPollNotificationSent = async (pollId, fieldName) => {
+  if (!pollId || !fieldName) {
+    return;
+  }
+  await Poll.updateOne({ _id: pollId }, { $set: { [fieldName]: new Date() } });
+};
+
+const toLeaderboardRows = (poll) => {
+  const rows = Array.isArray(poll?.competitors) ? poll.competitors : [];
+  const totalVotes = Number(poll?.totalVotes || 0);
+
+  return rows
+    .map((row) => {
+      const competitor = row?.competitor && typeof row.competitor === "object" ? row.competitor : null;
+      const votesCount = Number(row?.votesCount || 0);
+      const percentage = totalVotes === 0 ? 0 : Number(((votesCount / totalVotes) * 100).toFixed(2));
+      return {
+        competitorId: String(competitor?._id || row?.competitor || ""),
+        name: competitor?.name || "Unknown",
+        email: competitor?.email || "",
+        votesCount,
+        percentage,
+      };
+    })
+    .sort((a, b) => {
+      if (b.votesCount !== a.votesCount) return b.votesCount - a.votesCount;
+      return String(a.name).localeCompare(String(b.name));
+    })
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+};
+
+const sendCompetitorStartNotifications = async ({ poll }) => {
+  if (!poll?._id) {
+    return { attempted: 0, sent: 0, failed: 0, failedReasons: [] };
+  }
+  if (poll.startNotificationSentAt) {
+    return { attempted: 0, sent: 0, failed: 0, failedReasons: [] };
+  }
+
+  const fullPoll = await getPopulatedPoll(poll._id);
+  if (!fullPoll) {
+    return { attempted: 0, sent: 0, failed: 0, failedReasons: [] };
+  }
+
+  const rows = toLeaderboardRows(fullPoll);
+  const competitorNames = rows.map((row) => row.name);
+  const tasks = rows
+    .filter((item) => normalizeLower(item.email))
+    .map((item) =>
+      sendCompetitorElectionStartedEmail({
+        name: item.name,
+        email: item.email,
+        pollTitle: fullPoll.title,
+        startsAt: fullPoll.startsAt,
+        endsAt: fullPoll.endsAt,
+        competitors: competitorNames,
+      })
+    );
+
+  const summary = summarizeNotificationResults(await Promise.allSettled(tasks));
+  if (summary.attempted === 0 || summary.sent > 0) {
+    await markPollNotificationSent(poll._id, "startNotificationSentAt");
+  }
+  return summary;
+};
+
+const sendCompetitorFinalResultNotifications = async ({ poll }) => {
+  if (!poll?._id) {
+    return { attempted: 0, sent: 0, failed: 0, failedReasons: [] };
+  }
+  if (poll.finalResultNotificationSentAt || poll.cancelNotificationSentAt) {
+    return { attempted: 0, sent: 0, failed: 0, failedReasons: [] };
+  }
+
+  const fullPoll = await getPopulatedPoll(poll._id);
+  if (!fullPoll) {
+    return { attempted: 0, sent: 0, failed: 0, failedReasons: [] };
+  }
+
+  const leaderboard = toLeaderboardRows(fullPoll);
+  const totalVotes = Number(fullPoll.totalVotes || 0);
+  const totalCompetitors = leaderboard.length;
+
+  const tasks = leaderboard
+    .filter((row) => normalizeLower(row.email))
+    .map((row) =>
+      sendCompetitorElectionFinalResultEmail({
+        name: row.name,
+        email: row.email,
+        pollTitle: fullPoll.title,
+        startsAt: fullPoll.startsAt,
+        endsAt: fullPoll.endsAt,
+        totalVotes,
+        rank: row.rank,
+        totalCompetitors,
+        votesCount: row.votesCount,
+        percentage: row.percentage,
+        leaderboard,
+      })
+    );
+
+  const summary = summarizeNotificationResults(await Promise.allSettled(tasks));
+  if (summary.attempted === 0 || summary.sent > 0) {
+    await markPollNotificationSent(poll._id, "finalResultNotificationSentAt");
+  }
+  return summary;
+};
+
+const sendCompetitorCancellationNotifications = async ({ poll, reason }) => {
+  if (!poll?._id) {
+    return { attempted: 0, sent: 0, failed: 0, failedReasons: [] };
+  }
+  if (poll.cancelNotificationSentAt) {
+    return { attempted: 0, sent: 0, failed: 0, failedReasons: [] };
+  }
+
+  const competitorIds = Array.isArray(poll?.competitors)
+    ? poll.competitors.map((item) => String(item.competitor)).filter(Boolean)
+    : [];
+  if (competitorIds.length === 0) {
+    return { attempted: 0, sent: 0, failed: 0, failedReasons: [] };
+  }
+
+  const competitors = await Competitor.find({ _id: { $in: competitorIds } }).select("name email");
+  const tasks = competitors
+    .filter((item) => normalizeLower(item.email))
+    .map((item) =>
+      sendCompetitorElectionCanceledEmail({
+        name: item.name,
+        email: item.email,
+        pollTitle: poll.title,
+        startsAt: poll.startsAt,
+        endsAt: poll.endsAt,
+        reason,
+      })
+    );
+
+  const summary = summarizeNotificationResults(await Promise.allSettled(tasks));
+  if (summary.attempted === 0 || summary.sent > 0) {
+    await markPollNotificationSent(poll._id, "cancelNotificationSentAt");
+  }
+  return summary;
+};
+
+export const runPollLifecycleTick = async () => {
+  const now = new Date();
+
+  const pollsToAutoClose = await Poll.find({
+    isArchived: false,
+    status: POLL_STATUSES.ACTIVE,
+    endsAt: { $ne: null, $lte: now },
+  }).select("_id");
+
+  for (const poll of pollsToAutoClose) {
+    const updated = await Poll.findOneAndUpdate(
+      { _id: poll._id, status: POLL_STATUSES.ACTIVE },
+      { $set: { status: POLL_STATUSES.CLOSED } },
+      { new: true }
+    );
+    if (updated) {
+      publishPollResults(updated._id);
+    }
+  }
+
+  const pollsToNotifyStart = await Poll.find({
+    isArchived: false,
+    status: POLL_STATUSES.ACTIVE,
+    startsAt: { $ne: null, $lte: now },
+    startNotificationSentAt: null,
+  }).select("_id startNotificationSentAt");
+
+  for (const poll of pollsToNotifyStart) {
+    await sendCompetitorStartNotifications({ poll });
+  }
+
+  const pollsToNotifyFinal = await Poll.find({
+    isArchived: false,
+    status: POLL_STATUSES.CLOSED,
+    finalResultNotificationSentAt: null,
+    cancelNotificationSentAt: null,
+  }).select("_id finalResultNotificationSentAt cancelNotificationSentAt");
+
+  for (const poll of pollsToNotifyFinal) {
+    await sendCompetitorFinalResultNotifications({ poll });
+  }
+};
+
 export const createCompetitor = async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
@@ -235,6 +460,128 @@ export const listCompetitors = async (req, res) => {
     return res.status(500).json({ message: "failed to list competitors", error: error.message });
   }
 };
+
+export const updateCompetitor = async (req, res) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const { competitorId } = req.params;
+    if (!isId(competitorId)) {
+      return res.status(400).json({ message: "invalid competitor id" });
+    }
+
+    const competitor = await Competitor.findById(competitorId);
+    if (!competitor) {
+      return res.status(404).json({ message: "competitor not found" });
+    }
+
+    const b = bodyOf(req);
+    if (b.name !== undefined) {
+      const name = normalizeText(b.name);
+      if (!name) {
+        return res.status(400).json({ message: "name cannot be empty" });
+      }
+      competitor.name = name;
+    }
+
+    if (b.email !== undefined) {
+      const email = normalizeLower(b.email);
+      if (!email) {
+        return res.status(400).json({ message: "email cannot be empty" });
+      }
+      const exists = await Competitor.findOne({
+        email,
+        _id: { $ne: competitor._id },
+      }).select("_id");
+      if (exists) {
+        return res.status(409).json({ message: "competitor email already exists" });
+      }
+      competitor.email = email;
+    }
+
+    if (b.phone !== undefined) {
+      const phone = normalizeText(b.phone);
+      if (!phone) {
+        return res.status(400).json({ message: "phone cannot be empty" });
+      }
+      competitor.phone = phone;
+    }
+
+    if (b.sex !== undefined) {
+      const sex = normalizeLower(b.sex);
+      if (!COMPETITOR_SEX_VALUES.includes(sex)) {
+        return res.status(400).json({
+          message: "invalid sex value",
+          allowedSexValues: COMPETITOR_SEX_VALUES,
+        });
+      }
+      competitor.sex = sex;
+    }
+
+    if (b.password !== undefined && String(b.password).trim() !== "") {
+      if (String(b.password).length < 6) {
+        return res.status(400).json({ message: "password must be at least 6 characters" });
+      }
+      competitor.password = String(b.password);
+    }
+
+    if (req.file?.filename) {
+      competitor.imageUrl = getUploadedImageUrl(req, "competitors");
+    }
+
+    await competitor.save();
+
+    return res.status(200).json({
+      message: "competitor updated successfully",
+      competitor: competitor.toPublicJSON(),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "failed to update competitor", error: error.message });
+  }
+};
+
+export const deleteCompetitor = async (req, res) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const { competitorId } = req.params;
+    if (!isId(competitorId)) {
+      return res.status(400).json({ message: "invalid competitor id" });
+    }
+
+    const competitor = await Competitor.findById(competitorId);
+    if (!competitor) {
+      return res.status(404).json({ message: "competitor not found" });
+    }
+
+    const assignedPollCount = await Poll.countDocuments({
+      isArchived: false,
+      "competitors.competitor": competitor._id,
+    });
+    if (assignedPollCount > 0) {
+      return res.status(409).json({
+        message: "competitor is assigned to elections. remove candidate from elections first",
+      });
+    }
+
+    const hasVoteHistory = await Vote.exists({ competitorId: competitor._id });
+    if (hasVoteHistory) {
+      return res.status(409).json({
+        message: "competitor has vote history and cannot be deleted",
+      });
+    }
+
+    await competitor.deleteOne();
+
+    return res.status(200).json({
+      message: "competitor deleted successfully",
+      competitorId,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "failed to delete competitor", error: error.message });
+  }
+};
+
 export const createPoll = async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
@@ -273,7 +620,16 @@ export const createPoll = async (req, res) => {
       competitors: mapCompetitorsToPoll(ids),
     });
 
-    return res.status(201).json({ message: "poll created successfully", poll: await pollView(poll) });
+    let competitorNotification = { attempted: 0, sent: 0, failed: 0, failedReasons: [] };
+    if (poll.isOpenForVoting(new Date())) {
+      competitorNotification = await sendCompetitorStartNotifications({ poll });
+    }
+
+    return res.status(201).json({
+      message: "poll created successfully",
+      poll: await pollView(poll),
+      competitorNotification,
+    });
   } catch (error) {
     return res.status(500).json({ message: "failed to create poll", error: error.message });
   }
@@ -355,7 +711,15 @@ export const addPollCompetitors = async (req, res) => {
     poll.competitors = mapCompetitorsToPoll(merged);
     await poll.save();
     publishPollResults(poll._id);
-    return res.status(200).json({ message: "competitors assigned successfully", poll: await pollView(poll) });
+    let competitorNotification = { attempted: 0, sent: 0, failed: 0, failedReasons: [] };
+    if (poll.isOpenForVoting(new Date())) {
+      competitorNotification = await sendCompetitorStartNotifications({ poll });
+    }
+    return res.status(200).json({
+      message: "competitors assigned successfully",
+      poll: await pollView(poll),
+      competitorNotification,
+    });
   } catch (error) {
     return res.status(500).json({ message: "failed to assign competitors", error: error.message });
   }
@@ -376,7 +740,15 @@ export const replacePollCompetitors = async (req, res) => {
 
     await poll.save();
     publishPollResults(poll._id);
-    return res.status(200).json({ message: "competitors updated successfully", poll: await pollView(poll) });
+    let competitorNotification = { attempted: 0, sent: 0, failed: 0, failedReasons: [] };
+    if (poll.isOpenForVoting(new Date())) {
+      competitorNotification = await sendCompetitorStartNotifications({ poll });
+    }
+    return res.status(200).json({
+      message: "competitors updated successfully",
+      poll: await pollView(poll),
+      competitorNotification,
+    });
   } catch (error) {
     return res.status(500).json({ message: "failed to update competitors", error: error.message });
   }
@@ -441,10 +813,30 @@ export const updatePollStatus = async (req, res) => {
     const poll = await Poll.findById(pollId);
     if (!poll || poll.isArchived) return res.status(404).json({ message: "poll not found" });
 
+    const previousStatus = poll.status;
     poll.status = status;
     await poll.save();
     publishPollResults(poll._id);
-    return res.status(200).json({ message: "poll status updated successfully", poll: await pollView(poll) });
+
+    let competitorNotification = { attempted: 0, sent: 0, failed: 0, failedReasons: [] };
+    if (previousStatus !== POLL_STATUSES.ACTIVE && status === POLL_STATUSES.ACTIVE) {
+      competitorNotification = await sendCompetitorStartNotifications({ poll });
+    } else if (previousStatus !== POLL_STATUSES.CLOSED && status === POLL_STATUSES.CLOSED) {
+      const reason = normalizeText(bodyOf(req).reason);
+      const isCanceled = /cancel/i.test(reason);
+      competitorNotification = isCanceled
+        ? await sendCompetitorCancellationNotifications({
+            poll,
+            reason: reason || "Election canceled by admin.",
+          })
+        : await sendCompetitorFinalResultNotifications({ poll });
+    }
+
+    return res.status(200).json({
+      message: "poll status updated successfully",
+      poll: await pollView(poll),
+      competitorNotification,
+    });
   } catch (error) {
     return res.status(500).json({ message: "failed to update poll status", error: error.message });
   }
@@ -463,7 +855,17 @@ export const archivePoll = async (req, res) => {
     poll.status = POLL_STATUSES.CLOSED;
     await poll.save();
     publishPollResults(poll._id);
-    return res.status(200).json({ message: "poll archived successfully", poll: await pollView(poll) });
+
+    const competitorNotification = await sendCompetitorCancellationNotifications({
+      poll,
+      reason: normalizeText(bodyOf(req).reason) || "Election was archived/canceled by admin.",
+    });
+
+    return res.status(200).json({
+      message: "poll archived successfully",
+      poll: await pollView(poll),
+      competitorNotification,
+    });
   } catch (error) {
     return res.status(500).json({ message: "failed to archive poll", error: error.message });
   }
@@ -553,7 +955,10 @@ export const castVote = async (req, res) => {
     publishPollResults(poll._id);
 
     const updated = await Poll.findById(poll._id).populate(POPULATE_COMPETITORS);
-    return res.status(201).json({ message: "vote cast successfully", results: await pollView(updated, selected) });
+    return res.status(201).json({
+      message: "vote cast successfully",
+      results: await pollView(updated, selected),
+    });
   } catch (error) {
     return res.status(500).json({ message: "failed to cast vote", error: error.message });
   }
@@ -651,5 +1056,100 @@ export const getDashboardOverview = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: "failed to load dashboard overview", error: error.message });
+  }
+};
+
+export const listAdminVotesAudit = async (req, res) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const pollId = normalizeText(req.query?.pollId);
+    const search = normalizeLower(req.query?.search);
+    const voteFilter = {};
+
+    if (pollId) {
+      if (!isId(pollId)) {
+        return res.status(400).json({ message: "invalid poll id" });
+      }
+      voteFilter.poll = pollId;
+    }
+
+    const votes = await Vote.find(voteFilter)
+      .sort({ createdAt: -1 })
+      .populate({
+        path: "poll",
+        select: "title status startsAt endsAt isArchived",
+      })
+      .populate({
+        path: "user",
+        select: "name email role",
+      })
+      .populate({
+        path: "competitorId",
+        model: "Competitor",
+        select: "name email",
+      });
+
+    const rows = [];
+    for (const vote of votes) {
+      const poll = vote?.poll;
+      const voter = vote?.user;
+      const competitor = vote?.competitorId;
+      if (!poll || poll.isArchived) continue;
+      if (!voter || voter.role !== ROLES.USER) continue;
+
+      const row = {
+        id: vote._id,
+        votedAt: vote.createdAt,
+        poll: {
+          id: poll._id,
+          title: poll.title || "Untitled election",
+          status: poll.status || "",
+          startsAt: poll.startsAt || null,
+          endsAt: poll.endsAt || null,
+        },
+        voter: {
+          id: voter._id,
+          name: voter.name || "Unknown voter",
+          email: voter.email || "",
+        },
+        competitor: {
+          id: competitor?._id || vote.competitorId,
+          name: competitor?.name || "Unknown competitor",
+          email: competitor?.email || "",
+        },
+      };
+
+      if (search) {
+        const searchable = [
+          row.poll.title,
+          row.voter.name,
+          row.voter.email,
+          row.competitor.name,
+          row.competitor.email,
+        ]
+          .map((item) => String(item || "").toLowerCase())
+          .join(" ");
+        if (!searchable.includes(search)) {
+          continue;
+        }
+      }
+
+      rows.push(row);
+    }
+
+    const uniqueVoters = new Set(rows.map((item) => String(item.voter.id)));
+    const uniquePolls = new Set(rows.map((item) => String(item.poll.id)));
+
+    return res.status(200).json({
+      summary: {
+        totalVotes: rows.length,
+        totalVoters: uniqueVoters.size,
+        totalElections: uniquePolls.size,
+      },
+      votes: rows,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "failed to load votes audit", error: error.message });
   }
 };
