@@ -28,6 +28,9 @@ const lifecycleIntervalMs = Number(process.env.POLL_LIFECYCLE_INTERVAL_MS || 300
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Trust reverse proxy headers so protocol/secure cookies behave correctly in production.
+app.set("trust proxy", 1);
+
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -46,7 +49,7 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 app.use(
   session({
     name: "ems.sid",
@@ -63,6 +66,7 @@ app.use(
 );
 app.use(attachSessionUser);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/api/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.get("/", (req, res) => {
   res.status(200).json({ message: "backend is running" });

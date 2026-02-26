@@ -1,11 +1,16 @@
 import Poll, { POLL_STATUSES } from "../models/Poll.js";
 import Competitor, { COMPETITOR_SEX_VALUES } from "../models/Competitor.js";
+import { buildUploadedAssetUrl, normalizeUploadedAssetUrl } from "../utils/publicUrl.js";
 
 const normalizeText = (value) => (typeof value === "string" ? value.trim() : "");
 const normalizeEmail = (value) => normalizeText(value).toLowerCase();
 const MIN_PASSWORD_LENGTH = 6;
 
-const formatCompetitor = (competitor) => competitor.toPublicJSON();
+const formatCompetitor = (competitor) => {
+  const item = competitor.toPublicJSON();
+  item.imageUrl = normalizeUploadedAssetUrl(item.imageUrl);
+  return item;
+};
 
 const startCompetitorSession = (req, competitor) => {
   if (!req.session) {
@@ -17,11 +22,11 @@ const startCompetitorSession = (req, competitor) => {
   req.session.userRole = undefined;
 };
 
-const getUploadedImageUrl = (req) => {
-  if (!req?.file?.filename) {
+const getUploadedImageUrl = (fileName) => {
+  if (!fileName) {
     return "";
   }
-  return `${req.protocol}://${req.get("host")}/uploads/competitors/${req.file.filename}`;
+  return buildUploadedAssetUrl("competitors", fileName);
 };
 
 const getPollPhase = (poll, nowTs = Date.now()) => {
@@ -53,7 +58,7 @@ const mapParticipation = (poll, competitorId, nowTs = Date.now()) => {
         return {
           id: String(rowCompetitorId || ""),
           name: competitorObject?.name || "Unknown",
-          imageUrl: competitorObject?.imageUrl || "",
+          imageUrl: normalizeUploadedAssetUrl(competitorObject?.imageUrl || ""),
           votesCount: Number(row?.votesCount || 0),
         };
       })
@@ -82,7 +87,7 @@ const mapParticipation = (poll, competitorId, nowTs = Date.now()) => {
     id: String(poll._id),
     title: poll.title,
     description: poll.description,
-    imageUrl: poll.imageUrl || "",
+    imageUrl: normalizeUploadedAssetUrl(poll.imageUrl || ""),
     status: poll.status,
     phase: getPollPhase(poll, nowTs),
     startsAt: poll.startsAt,
@@ -215,7 +220,7 @@ export const updateCurrentCompetitor = async (req, res) => {
     competitor.phone = parsedPhone;
     competitor.sex = parsedSex;
 
-    const imageUrl = getUploadedImageUrl(req);
+    const imageUrl = getUploadedImageUrl(req.file?.filename);
     if (imageUrl) {
       competitor.imageUrl = imageUrl;
     }

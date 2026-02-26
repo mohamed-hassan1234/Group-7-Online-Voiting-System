@@ -6,6 +6,10 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadsRoot = path.join(__dirname, "..", "uploads");
+const maxUploadSizeMb = Number(process.env.MAX_UPLOAD_FILE_SIZE_MB || 15);
+const maxUploadBytes = Number.isFinite(maxUploadSizeMb) && maxUploadSizeMb > 0
+  ? Math.round(maxUploadSizeMb * 1024 * 1024)
+  : 15 * 1024 * 1024;
 
 const ensureDir = (folderPath) => {
   fs.mkdirSync(folderPath, { recursive: true });
@@ -41,7 +45,7 @@ const createUploader = (subFolder) =>
     storage: buildStorage(subFolder),
     fileFilter: imageFilter,
     limits: {
-      fileSize: 5 * 1024 * 1024,
+      fileSize: maxUploadBytes,
     },
   });
 
@@ -51,7 +55,12 @@ const withUploadError = (multerMiddleware) => (req, res, next) => {
       next();
       return;
     }
-    res.status(400).json({ message: error.message || "file upload failed" });
+    if (error.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
+        message: `image is too large. max allowed size is ${maxUploadSizeMb}MB`,
+      });
+    }
+    return res.status(400).json({ message: error.message || "file upload failed" });
   });
 };
 

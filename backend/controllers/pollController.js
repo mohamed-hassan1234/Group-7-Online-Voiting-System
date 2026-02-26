@@ -6,6 +6,7 @@ import User from "../models/User.js";
 import Competitor, { COMPETITOR_SEX_VALUES } from "../models/Competitor.js";
 import { ROLES } from "../constants/roles.js";
 import { publishPollResults, subscribeToPollResults } from "../utils/pollRealtime.js";
+import { buildUploadedAssetUrl, normalizeUploadedAssetUrl } from "../utils/publicUrl.js";
 import {
   sendCompetitorElectionFinalResultEmail,
   sendCompetitorElectionStartedEmail,
@@ -20,11 +21,11 @@ const isId = (v) => mongoose.isValidObjectId(v);
 const bodyOf = (req) => (req?.body && typeof req.body === "object" ? req.body : {});
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 
-const getUploadedImageUrl = (req, subFolder) => {
-  if (!req?.file?.filename) {
+const getUploadedImageUrl = (fileName, subFolder) => {
+  if (!fileName) {
     return "";
   }
-  return `${req.protocol}://${req.get("host")}/uploads/${subFolder}/${req.file.filename}`;
+  return buildUploadedAssetUrl(subFolder, fileName);
 };
 
 const parseDateInput = (v) => {
@@ -163,7 +164,7 @@ const pollView = async (poll, selectedCompetitorId = null) => {
       email: c?.email || "",
       phone: c?.phone || "",
       sex: c?.sex || "",
-      imageUrl: c?.imageUrl || "",
+      imageUrl: normalizeUploadedAssetUrl(c?.imageUrl || ""),
       votesCount,
       percentage,
       isSelected: selectedCompetitorId ? String(cid) === String(selectedCompetitorId) : false,
@@ -174,7 +175,7 @@ const pollView = async (poll, selectedCompetitorId = null) => {
     id: full._id,
     title: full.title,
     description: full.description,
-    imageUrl: full.imageUrl || "",
+    imageUrl: normalizeUploadedAssetUrl(full.imageUrl || ""),
     status: full.status,
     startsAt: full.startsAt,
     endsAt: full.endsAt,
@@ -420,7 +421,7 @@ export const createCompetitor = async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
     const { name, email, password, phone, sex } = bodyOf(req);
-    const imageUrl = getUploadedImageUrl(req, "competitors");
+    const imageUrl = getUploadedImageUrl(req.file?.filename, "competitors");
     const parsed = {
       name: normalizeText(name),
       email: normalizeLower(email),
@@ -439,7 +440,9 @@ export const createCompetitor = async (req, res) => {
     const exists = await Competitor.findOne({ email: parsed.email });
     if (exists) return res.status(409).json({ message: "competitor email already exists" });
     const competitor = await Competitor.create({ ...parsed, password, imageUrl });
-    return res.status(201).json({ message: "competitor created successfully", competitor: competitor.toPublicJSON() });
+    const competitorView = competitor.toPublicJSON();
+    competitorView.imageUrl = normalizeUploadedAssetUrl(competitorView.imageUrl);
+    return res.status(201).json({ message: "competitor created successfully", competitor: competitorView });
   } catch (error) {
     return res.status(500).json({ message: "failed to create competitor", error: error.message });
   }
@@ -455,7 +458,12 @@ export const listCompetitors = async (req, res) => {
       filter.$or = [{ name: rgx }, { email: rgx }, { phone: rgx }];
     }
     const competitors = await Competitor.find(filter).sort({ createdAt: -1 });
-    return res.status(200).json({ competitors: competitors.map((c) => c.toPublicJSON()) });
+    const competitorViews = competitors.map((c) => {
+      const item = c.toPublicJSON();
+      item.imageUrl = normalizeUploadedAssetUrl(item.imageUrl);
+      return item;
+    });
+    return res.status(200).json({ competitors: competitorViews });
   } catch (error) {
     return res.status(500).json({ message: "failed to list competitors", error: error.message });
   }
@@ -526,14 +534,16 @@ export const updateCompetitor = async (req, res) => {
     }
 
     if (req.file?.filename) {
-      competitor.imageUrl = getUploadedImageUrl(req, "competitors");
+      competitor.imageUrl = getUploadedImageUrl(req.file.filename, "competitors");
     }
 
     await competitor.save();
 
+    const competitorView = competitor.toPublicJSON();
+    competitorView.imageUrl = normalizeUploadedAssetUrl(competitorView.imageUrl);
     return res.status(200).json({
       message: "competitor updated successfully",
-      competitor: competitor.toPublicJSON(),
+      competitor: competitorView,
     });
   } catch (error) {
     return res.status(500).json({ message: "failed to update competitor", error: error.message });
@@ -588,7 +598,7 @@ export const createPoll = async (req, res) => {
     if (!admin) return;
 
     const b = bodyOf(req);
-    const imageUrl = getUploadedImageUrl(req, "polls");
+    const imageUrl = getUploadedImageUrl(req.file?.filename, "polls");
     const title = normalizeText(b.title);
     if (!title) return res.status(400).json({ message: "title is required" });
 
@@ -662,7 +672,7 @@ export const updatePoll = async (req, res) => {
       poll.title = title;
     }
     if (b.description !== undefined) poll.description = normalizeText(b.description);
-    if (req.file?.filename) poll.imageUrl = getUploadedImageUrl(req, "polls");
+    if (req.file?.filename) poll.imageUrl = getUploadedImageUrl(req.file.filename, "polls");
 
     const hasCompetitorUpdate = hasOwn(b, "competitorIds") || hasOwn(b, "competitors") || hasOwn(b, "options");
     if (hasCompetitorUpdate) {
