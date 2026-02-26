@@ -142,7 +142,10 @@ const getCompetitorInput = (b) => {
 };
 
 const checkCompetitorsExist = async (ids) => {
-  const docs = await Competitor.find({ _id: { $in: ids } }).select("_id");
+  const docs = await Competitor.find({
+    _id: { $in: ids },
+    isArchived: { $ne: true },
+  }).select("_id");
   const set = new Set(docs.map((d) => String(d._id)));
   return ids.filter((id) => !set.has(String(id)));
 };
@@ -452,7 +455,7 @@ export const listCompetitors = async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
     const search = normalizeText(req.query?.search);
-    const filter = {};
+    const filter = { isArchived: { $ne: true } };
     if (search) {
       const rgx = new RegExp(search, "i");
       filter.$or = [{ name: rgx }, { email: rgx }, { phone: rgx }];
@@ -479,7 +482,7 @@ export const updateCompetitor = async (req, res) => {
     }
 
     const competitor = await Competitor.findById(competitorId);
-    if (!competitor) {
+    if (!competitor || competitor.isArchived) {
       return res.status(404).json({ message: "competitor not found" });
     }
 
@@ -560,7 +563,7 @@ export const deleteCompetitor = async (req, res) => {
     }
 
     const competitor = await Competitor.findById(competitorId);
-    if (!competitor) {
+    if (!competitor || competitor.isArchived) {
       return res.status(404).json({ message: "competitor not found" });
     }
 
@@ -571,38 +574,41 @@ export const deleteCompetitor = async (req, res) => {
 
     if (assignedPolls.length > 0) {
       const pollsWithVotes = assignedPolls.filter((poll) => Number(poll.totalVotes || 0) > 0);
-      if (pollsWithVotes.length > 0) {
-        return res.status(409).json({
-          message: "competitor has vote history and cannot be deleted from elections with votes",
-          blockingElections: pollsWithVotes.map((poll) => ({
-            id: poll._id,
-            title: poll.title || "Untitled election",
-            totalVotes: Number(poll.totalVotes || 0),
-          })),
-        });
-      }
-
       const pollsBelowMinimum = assignedPolls.filter(
         (poll) => Array.isArray(poll.competitors) && poll.competitors.length <= 2
       );
-      if (pollsBelowMinimum.length > 0) {
-        return res.status(409).json({
-          message:
-            "cannot delete competitor because some elections would have less than 2 competitors. add/replace competitors first",
-          blockingElections: pollsBelowMinimum.map((poll) => ({
-            id: poll._id,
-            title: poll.title || "Untitled election",
-            competitorsCount: Array.isArray(poll.competitors) ? poll.competitors.length : 0,
-          })),
-        });
-      }
-
-      for (const poll of assignedPolls) {
+      const safeToDetachPolls = assignedPolls.filter(
+        (poll) => Number(poll.totalVotes || 0) <= 0 && Array.isArray(poll.competitors) && poll.competitors.length > 2
+      );
+      for (const poll of safeToDetachPolls) {
         poll.competitors = (poll.competitors || []).filter(
           (row) => String(row?.competitor) !== String(competitor._id)
         );
         await poll.save();
         publishPollResults(poll._id);
+      }
+
+      const hasBlockingAssignment = pollsWithVotes.length > 0 || pollsBelowMinimum.length > 0;
+      if (hasBlockingAssignment) {
+        competitor.isArchived = true;
+        await competitor.save();
+        return res.status(200).json({
+          message: "competitor archived successfully (kept for election history)",
+          competitorId,
+          mode: "archived",
+          blockingElections: {
+            withVotes: pollsWithVotes.map((poll) => ({
+              id: poll._id,
+              title: poll.title || "Untitled election",
+              totalVotes: Number(poll.totalVotes || 0),
+            })),
+            belowMinimumCompetitors: pollsBelowMinimum.map((poll) => ({
+              id: poll._id,
+              title: poll.title || "Untitled election",
+              competitorsCount: Array.isArray(poll.competitors) ? poll.competitors.length : 0,
+            })),
+          },
+        });
       }
     }
 
@@ -610,8 +616,12 @@ export const deleteCompetitor = async (req, res) => {
       $or: [{ competitorId: competitor._id }, { optionId: competitor._id }],
     });
     if (hasVoteHistory) {
-      return res.status(409).json({
-        message: "competitor has vote history and cannot be deleted",
+      competitor.isArchived = true;
+      await competitor.save();
+      return res.status(200).json({
+        message: "competitor archived successfully (vote history preserved)",
+        competitorId,
+        mode: "archived",
       });
     }
 

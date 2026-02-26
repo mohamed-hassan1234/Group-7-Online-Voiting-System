@@ -121,7 +121,10 @@ export const loginCompetitor = async (req, res) => {
       });
     }
 
-    const competitor = await Competitor.findOne({ email: parsedEmail }).select("+password");
+    const competitor = await Competitor.findOne({
+      email: parsedEmail,
+      isArchived: { $ne: true },
+    }).select("+password");
     if (!competitor) {
       return res.status(401).json({
         message: "invalid email or password",

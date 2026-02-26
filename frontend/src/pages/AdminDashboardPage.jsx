@@ -679,11 +679,11 @@ function AdminDashboardPage() {
     setProcessingCompetitorId(competitor.id);
 
     try {
-      await deleteCompetitor(competitor.id);
+      const response = await deleteCompetitor(competitor.id);
       if (editingCompetitorId === competitor.id) {
         resetCompetitorForm();
       }
-      setActionMessage("Competitor deleted successfully.");
+      setActionMessage(response?.message || "Competitor deleted successfully.");
       await refreshData();
     } catch (error) {
       setActionError(error.message);

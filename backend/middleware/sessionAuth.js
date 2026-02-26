@@ -22,7 +22,7 @@ export const attachSessionUser = async (req, res, next) => {
     const sessionCompetitorId = req.session?.competitorId;
     if (sessionCompetitorId && isValidObjectId(sessionCompetitorId)) {
       const competitor = await Competitor.findById(sessionCompetitorId);
-      if (!competitor) {
+      if (!competitor || competitor.isArchived) {
         req.session.competitorId = undefined;
       } else {
         req.authCompetitor = competitor;
